@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ensayos Cíclicos — Visualizador Def [%]</title>
+
+<!-- SheetJS para leer Excel en el navegador -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Plotly para gráficos interactivos -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+
+<style>
+  /* ─── Tokens ─────────────────────────────────────────────── */
+  :root {
+    --bg:        #0f1117;
+    --surface:   #181c27;
+    --panel:     #1e2334;
+    --border:    #2c3250;
+    --accent:    #4f8ef7;
+    --accent2:   #f7764f;
+    --text:      #dde3f5;
+    --muted:     #7a82a6;
+    --danger:    #e05c5c;
+    --success:   #4fcb8a;
+    --radius:    8px;
+    --mono:      'JetBrains Mono', 'Fira Mono', monospace;
+    --sans:      'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ─── Header ─────────────────────────────────────────────── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo {
+    width: 38px; height: 38px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
+  header p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .header-badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  /* ─── Drop zone ───────────────────────────────────────────── */
+  #dropzone-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 75px);
+    padding: 40px 20px;
+    gap: 24px;
+  }
+  #dropzone {
+    width: 100%;
+    max-width: 580px;
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: var(--surface);
+  }
+  #dropzone:hover, #dropzone.drag-over {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  }
+  #dropzone .icon { font-size: 42px; margin-bottom: 16px; }
+  #dropzone h2   { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  #dropzone p    { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  #file-input    { display: none; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: var(--radius);
+    border: none; cursor: pointer; font-size: 13px; font-weight: 500;
+    transition: opacity .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: .88; }
+  .btn-ghost {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--accent); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  #drop-btn { margin-top: 20px; }
+
+  .hint {
+    max-width: 480px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.8;
+    text-align: left;
+  }
+  .hint strong { color: var(--text); }
+
+  /* ─── Main layout ─────────────────────────────────────────── */
+  #app-section { display: none; }
+
+  .app-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 75px);
+  }
+
+  /* ─── Sidebar ─────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+  }
+  .sidebar-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .file-list { display: flex; flex-direction: column; gap: 4px; }
+  .file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background .15s, border-color .15s;
+    font-size: 13px;
+  }
+  .file-item:hover { background: var(--panel); }
+  .file-item.active {
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+  }
+  .file-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--success);
+  }
+  .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cycle-badge {
+    font-family: var(--mono); font-size: 10px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 20px; color: var(--muted);
+    flex-shrink: 0;
+  }
+  .file-item.active .cycle-badge { border-color: var(--accent); color: var(--accent); }
+
+  .add-files-btn { width: 100%; justify-content: center; }
+
+  /* ─── Controls ────────────────────────────────────────────── */
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  label.ctrl-label {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .range-row { display: flex; align-items: center; gap: 10px; }
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .range-val {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--accent);
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 4px; min-width: 36px; text-align: center;
+  }
+  .dual-range { position: relative; }
+  .dual-range input { position: absolute; width: 100%; pointer-events: none; }
+  .dual-range input::-webkit-slider-thumb { pointer-events: all; }
+
+  .toggle-row { display: flex; flex-direction: column; gap: 8px; }
+  .toggle-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; cursor: pointer;
+  }
+  .toggle-item input[type=checkbox] {
+    width: 16px; height: 16px;
+    accent-color: var(--accent); cursor: pointer;
+  }
+
+  .radio-group { display: flex; flex-direction: column; gap: 6px; }
+  .radio-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; cursor: pointer;
+  }
+  .radio-item input[type=radio] {
+    width: 15px; height: 15px;
+    accent-color: var(--accent); cursor: pointer;
+  }
+
+  .download-group { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ─── Main content ────────────────────────────────────────── */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .main-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .main-header h2 { font-size: 15px; font-weight: 600; }
+  .stat-chip {
+    font-family: var(--mono); font-size: 11px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 3px 9px; border-radius: 20px; color: var(--muted);
+  }
+  .stat-chip span { color: var(--text); font-weight: 600; }
+
+  #chart-container {
+    flex: 1;
+    min-height: 480px;
+    padding: 12px 8px 0;
+  }
+
+  .tables-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid var(--border);
+  }
+  .table-panel {
+    padding: 18px 22px;
+    overflow-x: auto;
+  }
+  .table-panel + .table-panel {
+    border-left: 1px solid var(--border);
+  }
+  .table-panel h3 {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted); margin-bottom: 12px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    text-align: left; padding: 6px 10px;
+    background: var(--panel);
+    color: var(--muted); font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    font-family: var(--mono);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--panel); }
+  .hito-badge {
+    display: inline-block;
+    background: color-mix(in srgb, var(--accent2) 15%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent);
+    color: var(--accent2);
+    padding: 1px 7px; border-radius: 20px; font-size: 11px;
+  }
+
+  /* ─── Empty / loading states ──────────────────────────────── */
+  .empty-state {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100%; min-height: 300px;
+    color: var(--muted); gap: 10px;
+    font-size: 13px;
+  }
+  .empty-state .icon { font-size: 32px; }
+
+  /* ─── Scrollbars ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ─── Responsive ──────────────────────────────────────────── */
+  @media (max-width: 800px) {
+    .app-layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .tables-area { grid-template-columns: 1fr; }
+    .table-panel + .table-panel { border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════ HEADER ════════════════ -->
+<header>
+  <div class="logo">📊</div>
+  <div>
+    <h1>Visualizador de Ensayos Cíclicos</h1>
+    <p>Deformación [%] por ciclo — análisis de umbrales</p>
+  </div>
+  <div class="header-badge">Def [%] analyzer v2</div>
+</header>
+
+<!-- ════════════════ DROP ZONE ════════════════ -->
+<section id="dropzone-section">
+  <div id="dropzone">
+    <div class="icon">📂</div>
+    <h2>Arrastra tus archivos Excel aquí</h2>
+    <p>Acepta uno o varios archivos <strong>.xlsx</strong> con la columna <strong>Def [%]</strong>.<br>
+       Todo el procesamiento ocurre en tu navegador — ningún dato sale de tu equipo.</p>
+    <button class="btn btn-primary" id="drop-btn" onclick="document.getElementById('file-input').click()">
+      Seleccionar archivos
+    </button>
+    <input type="file" id="file-input" multiple accept=".xlsx">
+  </div>
+
+  <div class="hint">
+    <strong>Archivos compatibles:</strong> los mismos que usa la app R/Shiny —<br>
+    cualquier .xlsx que contenga una primera columna numérica (eje de ciclos)<br>
+    y una columna llamada <strong>Def [%]</strong>.<br><br>
+    Archivos como <em>Resumen_*, *con_ciclos*, *filtrado*</em> se excluyen automáticamente.
+  </div>
+</section>
+
+<!-- ════════════════ MAIN APP ════════════════ -->
+<section id="app-section">
+  <div class="app-layout">
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+
+      <div>
+        <div class="sidebar-title">Archivos cargados</div>
+        <div class="file-list" id="file-list"></div>
+      </div>
+
+      <div>
+        <button class="btn btn-ghost add-files-btn btn-sm"
+          onclick="document.getElementById('file-input').click()">
+          ＋ Agregar archivos
+        </button>
+      </div>
+
+      <div class="controls" id="controls">
+        <!-- Se rellena dinámicamente -->
+      </div>
+
+    </aside>
+
+    <!-- ── Main panel ── -->
+    <div class="main">
+
+      <div class="main-header">
+        <h2 id="active-title">—</h2>
+        <div class="stat-chip">Ciclos: <span id="stat-ciclos">—</span></div>
+        <div class="stat-chip">Observaciones: <span id="stat-obs">—</span></div>
+        <div class="stat-chip" style="margin-left:auto;">
+          Umbral máx alcanzado: <span id="stat-umbral">—</span>
+        </div>
+      </div>
+
+      <div id="chart-container">
+        <div class="empty-state">
+          <div class="icon">📈</div>
+          Selecciona un archivo para ver el gráfico
+        </div>
+      </div>
+
+      <div class="tables-area">
+        <div class="table-panel">
+          <h3>Resumen de ciclos seleccionados</h3>
+          <div id="table-resumen"></div>
+        </div>
+        <div class="table-panel">
+          <h3>Primeros cruces de umbral (Def [%])</h3>
+          <div id="table-hitos"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ SCRIPT ════════════════ -->
+<script>
+/* ─────────────────────────────────────────────
+   Constantes / config
+───────────────────────────────────────────── */
+const COL_DEF    = "Def [%]";
+const EXCLUIDOS  = /^Resumen|con_ciclos|filtrado|filtrados|hitos|resumen/i;
+const UMBRALES   = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5];
+
+/* ─────────────────────────────────────────────
+   Estado global
+───────────────────────────────────────────── */
+const archivos = {};   // id → { nombre, id, datos, datosGrafico, hitos, resumenCiclos, colBase, minCiclo, maxCiclo }
+let activeId   = null;
+
+/* ─────────────────────────────────────────────
+   Drag-and-drop + file input
+───────────────────────────────────────────── */
+const dropzone   = document.getElementById('dropzone');
+const fileInput  = document.getElementById('file-input');
+
+['dragenter','dragover'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag-over'); }));
+['dragleave','drop'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag-over'); }));
+dropzone.addEventListener('drop',  e => handleFiles(e.dataTransfer.files));
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(fileList) {
+  Array.from(fileList).forEach(f => {
+    if (!f.name.endsWith('.xlsx')) return;
+    const base = f.name.replace(/\.xlsx$/i, '');
+    if (EXCLUIDOS.test(base)) return;
+    leerExcel(f);
+  });
+}
+
+/* ─────────────────────────────────────────────
+   Lectura y procesamiento Excel
+───────────────────────────────────────────── */
+function leerExcel(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: null });
+
+    if (!raw.length) return;
+    // Verificar columna Def [%]
+    if (!(COL_DEF in raw[0])) {
+      console.warn(`${file.name}: sin columna "${COL_DEF}", omitido.`);
+      return;
+    }
+
+    const id = toId(file.name);
+    const nombre = file.name.replace(/\.xlsx$/i, '');
+
+    // Primera columna como base (eje X de ciclos)
+    const colBase = Object.keys(raw[0])[0];
+
+    // Asignar ciclos por cambio de signo (mismo algoritmo R)
+    let ciclo = 0;
+    let signoAnt = null;
+    const datosGrafico = raw.map((row, i) => {
+      const v = parseFloat(row[colBase]) || 0;
+      const signo = v > 0 ? 'pos' : v < 0 ? 'neg' : 'cero';
+      if (i === 0 && signo === 'pos') ciclo = 1;
+      else if (signoAnt === 'neg' && signo === 'pos') ciclo++;
+      signoAnt = signo;
+      return { ...row, ciclo_calculado: ciclo, obs_global: i + 1 };
+    });
+
+    // obs dentro de ciclo
+    const contCiclo = {};
+    datosGrafico.forEach(r => {
+      contCiclo[r.ciclo_calculado] = (contCiclo[r.ciclo_calculado] || 0) + 1;
+      r.obs_en_ciclo = contCiclo[r.ciclo_calculado];
+    });
+
+    const minCiclo = Math.min(...datosGrafico.map(r => r.ciclo_calculado));
+    const maxCiclo = Math.max(...datosGrafico.map(r => r.ciclo_calculado));
+
+    // Hitos: primera obs que alcanza cada umbral (|Def [%]| ≥ u)
+    const hitos = [];
+    for (const u of UMBRALES) {
+      const hit = datosGrafico.find(r => Math.abs(parseFloat(r[COL_DEF]) || 0) >= u);
+      if (hit) hitos.push({ ...hit, umbral: u });
+    }
+
+    // Resumen por ciclo
+    const cicloMap = {};
+    datosGrafico.forEach(r => {
+      const c = r.ciclo_calculado;
+      if (!cicloMap[c]) cicloMap[c] = { ciclo: c, rows: [] };
+      cicloMap[c].rows.push(r);
+    });
+    const resumenCiclos = Object.values(cicloMap).map(({ ciclo: c, rows }) => {
+      const vals = rows.map(r => parseFloat(r[colBase]) || 0);
+      const defs = rows.map(r => parseFloat(r[COL_DEF]) || 0);
+      return {
+        ciclo: c,
+        n_obs: rows.length,
+        val_ini: fmt(vals[0]),
+        val_fin: fmt(vals[vals.length-1]),
+        max_col: fmt(Math.max(...vals)),
+        min_col: fmt(Math.min(...vals)),
+        max_def: fmt(Math.max(...defs)),
+        min_def: fmt(Math.min(...defs))
+      };
+    });
+
+    archivos[id] = { nombre, id, datosGrafico, hitos, resumenCiclos, colBase, minCiclo, maxCiclo };
+    renderSidebar();
+    if (!activeId) setActive(id);
+    document.getElementById('dropzone-section').style.display = 'none';
+    document.getElementById('app-section').style.display = 'block';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function toId(name) {
+  return name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+function fmt(n) { return isNaN(n) ? '—' : parseFloat(n.toFixed(4)); }
+
+/* ─────────────────────────────────────────────
+   Sidebar
+───────────────────────────────────────────── */
+function renderSidebar() {
+  const list = document.getElementById('file-list');
+  list.innerHTML = '';
+  Object.values(archivos).forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'file-item' + (item.id === activeId ? ' active' : '');
+    div.dataset.id = item.id;
+    div.innerHTML = `
+      <div class="file-dot"></div>
+      <span class="file-name" title="${item.nombre}">${item.nombre}</span>
+      <span class="cycle-badge">${item.maxCiclo}c</span>
+    `;
+    div.addEventListener('click', () => setActive(item.id));
+    list.appendChild(div);
+  });
+}
+
+/* ─────────────────────────────────────────────
+   Activar archivo
+───────────────────────────────────────────── */
+function setActive(id) {
+  activeId = id;
+  renderSidebar();
+  renderControls();
+  renderAll();
+}
+
+/* ─────────────────────────────────────────────
+   Controles dinámicos
+───────────────────────────────────────────── */
+function renderControls() {
+  const item = archivos[activeId];
+  if (!item) return;
+  const { minCiclo, maxCiclo, id } = item;
+  const rangeMax = maxCiclo;
+  const defRangeEnd = Math.min(minCiclo + 9, maxCiclo);
+
+  document.getElementById('controls').innerHTML = `
+    <div>
+      <label class="ctrl-label">Ciclo inicial</label>
+      <div class="range-row">
+        <input type="range" id="rng-min" min="${minCiclo}" max="${maxCiclo}" value="${minCiclo}" step="1">
+        <div class="range-val" id="val-min">${minCiclo}</div>
+      </div>
+    </div>
+    <div>
+      <label class="ctrl-label">Ciclo final</label>
+      <div class="range-row">
+        <input type="range" id="rng-max" min="${minCiclo}" max="${maxCiclo}" value="${defRangeEnd}" step="1">
+        <div class="range-val" id="val-max">${defRangeEnd}</div>
+      </div>
+    </div>
+    <div>
+      <label class="ctrl-label">Opciones</label>
+      <div class="toggle-row">
+        <label class="toggle-item">
+          <input type="checkbox" id="chk-puntos"> Mostrar puntos
+        </label>
+        <label class="toggle-item">
+          <input type="checkbox" id="chk-hitos" checked> Destacar cruces de umbral
+        </label>
+      </div>
+    </div>
+    <div>
+      <label class="ctrl-label">Eje horizontal</label>
+      <div class="radio-group">
+        <label class="radio-item">
+          <input type="radio" name="ejex" value="global" checked> Observación global
+        </label>
+        <label class="radio-item">
+          <input type="radio" name="ejex" value="ciclo"> Obs. dentro de ciclo
+        </label>
+      </div>
+    </div>
+    <div>
+      <label class="ctrl-label">Exportar</label>
+      <div class="download-group">
+        <button class="btn btn-ghost btn-sm" onclick="exportarHTML()">⬇ Gráfico HTML</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportarCSV()">⬇ Datos CSV</button>
+      </div>
+    </div>
+  `;
+
+  // Listeners
+  ['rng-min','rng-max'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      let vMin = +document.getElementById('rng-min').value;
+      let vMax = +document.getElementById('rng-max').value;
+      if (vMin > vMax) {
+        if (id === 'rng-min') vMax = vMin, document.getElementById('rng-max').value = vMax;
+        else vMin = vMax, document.getElementById('rng-min').value = vMin;
+      }
+      document.getElementById('val-min').textContent = vMin;
+      document.getElementById('val-max').textContent = vMax;
+      renderAll();
+    });
+  });
+  ['chk-puntos','chk-hitos'].forEach(id =>
+    document.getElementById(id).addEventListener('change', renderAll));
+  document.querySelectorAll('input[name=ejex]').forEach(r =>
+    r.addEventListener('change', renderAll));
+}
+
+/* ─────────────────────────────────────────────
+   Datos filtrados
+───────────────────────────────────────────── */
+function getRango() {
+  return [
+    +(document.getElementById('rng-min')?.value ?? 1),
+    +(document.getElementById('rng-max')?.value ?? 999)
+  ];
+}
+function getEjeX() {
+  return document.querySelector('input[name=ejex]:checked')?.value ?? 'global';
+}
+function isChecked(id) { return document.getElementById(id)?.checked ?? false; }
+
+function datosFiltrados() {
+  const item = archivos[activeId];
+  if (!item) return [];
+  const [r0, r1] = getRango();
+  return item.datosGrafico.filter(r => r.ciclo_calculado >= r0 && r.ciclo_calculado <= r1);
+}
+function hitosFiltrados() {
+  const item = archivos[activeId];
+  if (!item) return [];
+  const [r0, r1] = getRango();
+  return item.hitos.filter(r => r.ciclo_calculado >= r0 && r.ciclo_calculado <= r1);
+}
+function resumenFiltrado() {
+  const item = archivos[activeId];
+  if (!item) return [];
+  const [r0, r1] = getRango();
+  return item.resumenCiclos.filter(r => r.ciclo >= r0 && r.ciclo <= r1);
+}
+
+/* ─────────────────────────────────────────────
+   Renderizado completo
+───────────────────────────────────────────── */
+function renderAll() {
+  renderStats();
+  renderGrafico();
+  renderTablas();
+}
+
+function renderStats() {
+  const item = archivos[activeId];
+  if (!item) return;
+  document.getElementById('active-title').textContent = item.nombre;
+  const df = datosFiltrados();
+  const hf = hitosFiltrados();
+  const [r0, r1] = getRango();
+  document.getElementById('stat-ciclos').textContent = `${r0}–${r1}`;
+  document.getElementById('stat-obs').textContent = df.length;
+  const maxU = hf.length ? Math.max(...hf.map(h => h.umbral)) + '%' : '—';
+  document.getElementById('stat-umbral').textContent = maxU;
+}
+
+function renderGrafico() {
+  const item = archivos[activeId];
+  if (!item) return;
+
+  const df    = datosFiltrados();
+  const hf    = hitosFiltrados();
+  const ejex  = getEjeX();
+  const xKey  = ejex === 'global' ? 'obs_global' : 'obs_en_ciclo';
+  const xLabel = ejex === 'global' ? 'Observación global' : 'Obs. dentro de cada ciclo';
+  const mostrarPuntos = isChecked('chk-puntos');
+  const mostrarHitos  = isChecked('chk-hitos');
+
+  // Construir trazas por ciclo
+  const ciclos = [...new Set(df.map(r => r.ciclo_calculado))];
+  const colorScale = (c, total) => {
+    const t = total <= 1 ? 0 : (c - ciclos[0]) / (ciclos[ciclos.length-1] - ciclos[0]);
+    // gradiente azul oscuro → azul claro
+    const r = Math.round(30 + t * 80);
+    const g = Math.round(80 + t * 80);
+    const b = Math.round(180 + t * 60);
+    return `rgb(${r},${g},${b})`;
+  };
+
+  const traces = ciclos.map(c => {
+    const rows = df.filter(r => r.ciclo_calculado === c);
+    const x = rows.map(r => r[xKey]);
+    const y = rows.map(r => parseFloat(r[COL_DEF]) || 0);
+    const text = rows.map(r =>
+      `Archivo: ${item.nombre}<br>Ciclo: ${c}<br>` +
+      `Obs. global: ${r.obs_global}<br>Obs. en ciclo: ${r.obs_en_ciclo}<br>` +
+      `Def [%]: ${fmt(parseFloat(r[COL_DEF]))}`
+    );
+    const col = colorScale(c, ciclos.length);
+    const t = {
+      x, y, text,
+      hoverinfo: 'text',
+      mode: mostrarPuntos ? 'lines+markers' : 'lines',
+      type: 'scatter',
+      name: `Ciclo ${c}`,
+      line: { color: col, width: 1.5 },
+      marker: { color: col, size: 4 }
+    };
+    return t;
+  });
+
+  // Hitos
+  if (mostrarHitos && hf.length) {
+    const hx = hf.map(h => h[xKey]);
+    const hy = hf.map(h => parseFloat(h[COL_DEF]) || 0);
+    const htxt = hf.map(h =>
+      `Umbral: ${h.umbral}%<br>Ciclo: ${h.ciclo_calculado}<br>` +
+      `Obs. global: ${h.obs_global}<br>Obs. en ciclo: ${h.obs_en_ciclo}<br>` +
+      `Def [%]: ${fmt(parseFloat(h[COL_DEF]))}`
+    );
+    traces.push({
+      x: hx, y: hy, text: htxt,
+      hoverinfo: 'text',
+      mode: 'markers+text',
+      type: 'scatter',
+      name: 'Hitos umbral',
+      marker: { color: '#f7764f', size: 10, symbol: 'circle', line: { color: '#fff', width: 1.5 } },
+      text: hf.map(h => h.umbral + '%'),
+      textposition: 'top center',
+      textfont: { color: '#f7a07a', size: 11 },
+      showlegend: true
+    });
+  }
+
+  const layout = {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor:  'rgba(0,0,0,0)',
+    font: { color: '#dde3f5', family: 'Inter, system-ui, sans-serif', size: 12 },
+    xaxis: {
+      title: { text: xLabel, standoff: 10 },
+      gridcolor: '#2c3250', zerolinecolor: '#2c3250', linecolor: '#2c3250',
+      tickcolor: '#7a82a6', tickfont: { size: 11 }
+    },
+    yaxis: {
+      title: { text: 'Def [%]', standoff: 10 },
+      gridcolor: '#2c3250', zerolinecolor: '#4f8ef7', linecolor: '#2c3250',
+      tickcolor: '#7a82a6', tickfont: { size: 11 }, zeroline: true, zerolinewidth: 1.5
+    },
+    margin: { l: 56, r: 24, t: 36, b: 52 },
+    title: {
+      text: `Def [%] por ciclo — ${item.nombre}`,
+      font: { size: 13, color: '#dde3f5' },
+      x: 0.01, xanchor: 'left'
+    },
+    legend: {
+      bgcolor: 'rgba(24,28,39,.85)',
+      bordercolor: '#2c3250', borderwidth: 1,
+      font: { size: 11 }
+    },
+    hovermode: 'closest'
+  };
+
+  const config = {
+    responsive: true,
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['lasso2d','select2d'],
+    toImageButtonOptions: { format: 'png', filename: item.nombre + '_def' }
+  };
+
+  Plotly.react('chart-container', traces, layout, config);
+}
+
+/* ─────────────────────────────────────────────
+   Tablas
+───────────────────────────────────────────── */
+function renderTablas() {
+  const item = archivos[activeId];
+  if (!item) return;
+
+  // Resumen ciclos
+  const rs = resumenFiltrado();
+  const trResumen = document.getElementById('table-resumen');
+  if (!rs.length) {
+    trResumen.innerHTML = '<div class="empty-state" style="min-height:80px"><div class="icon">🔍</div>Sin datos</div>';
+  } else {
+    trResumen.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Ciclo</th><th>N obs</th>
+          <th>Max ${item.colBase}</th><th>Min ${item.colBase}</th>
+          <th>Max Def [%]</th><th>Min Def [%]</th>
+        </tr></thead>
+        <tbody>
+          ${rs.map(r => `<tr>
+            <td>${r.ciclo}</td><td>${r.n_obs}</td>
+            <td>${r.max_col}</td><td>${r.min_col}</td>
+            <td>${r.max_def}</td><td>${r.min_def}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // Hitos
+  const hf = hitosFiltrados();
+  const trHitos = document.getElementById('table-hitos');
+  if (!hf.length) {
+    trHitos.innerHTML = '<div class="empty-state" style="min-height:80px"><div class="icon">🎯</div>Sin hitos en el rango</div>';
+  } else {
+    trHitos.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Umbral</th><th>Ciclo</th>
+          <th>Obs. global</th><th>Obs. en ciclo</th><th>Def [%]</th>
+        </tr></thead>
+        <tbody>
+          ${hf.map(h => `<tr>
+            <td><span class="hito-badge">${h.umbral}%</span></td>
+            <td>${h.ciclo_calculado}</td>
+            <td>${h.obs_global}</td>
+            <td>${h.obs_en_ciclo}</td>
+            <td>${fmt(parseFloat(h[COL_DEF]))}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   Exportar
+───────────────────────────────────────────── */
+function exportarHTML() {
+  const chartDiv = document.getElementById('chart-container');
+  Plotly.downloadImage(chartDiv, {
+    format: 'html', filename: archivos[activeId]?.nombre + '_def'
+  }).catch(() => {
+    // Plotly no tiene downloadHTML nativo; usamos toImage como PNG
+    Plotly.toImage(chartDiv, { format: 'png', width: 1400, height: 700 }).then(url => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (archivos[activeId]?.nombre ?? 'grafico') + '_def.png';
+      a.click();
+    });
+  });
+}
+
+function exportarCSV() {
+  const item = archivos[activeId];
+  if (!item) return;
+  const df = datosFiltrados();
+  if (!df.length) return;
+
+  const cols = Object.keys(df[0]);
+  const lines = [cols.join(',')];
+  df.forEach(r => lines.push(cols.map(c => {
+    const v = r[c];
+    return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? '');
+  }).join(',')));
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${item.nombre}_ciclos_filtrados.csv`;
+  a.click();
+}
+</script>
+</body>
+</html>
